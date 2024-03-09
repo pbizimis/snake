@@ -13,11 +13,14 @@
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
 
-/* Shared memory support code */
-static void randname(char *buf) {
+long get_nanoseconds() {
   struct timespec ts;
   clock_gettime(CLOCK_REALTIME, &ts);
-  long r = ts.tv_nsec;
+  return ts.tv_nsec;
+}
+/* Shared memory support code */
+static void randname(char *buf) {
+  long r = get_nanoseconds();
   for (int i = 0; i < 6; ++i) {
     buf[i] = 'A' + (r & 15) + (r & 16) * 2;
     r >>= 5;
@@ -92,7 +95,35 @@ struct client_state {
   short (*pixelmap)[WINDOW_WIDTH][WINDOW_HEIGHT];
   struct coords *start;
   struct coords *end;
+  struct coords *target;
 };
+
+int random_coordinate(int max_number) { return rand() % max_number + 1; }
+
+void set_cube_to(short cube_size, short pixelmap[WINDOW_WIDTH][WINDOW_HEIGHT],
+                 short value, short x, short y) {
+  for (int i = -cube_size; i < cube_size + 1; i++) {
+    for (int j = -cube_size; j < cube_size + 1; j++) {
+      pixelmap[x + i][y + j] = value;
+    }
+  }
+}
+
+void generate_target(struct client_state *state) {
+
+  short cube_size = 8;
+
+  if (state->target->x > -1 && state->target->y > -1) {
+    set_cube_to(cube_size, *state->pixelmap, 0, state->target->x,
+                state->target->y);
+  }
+
+  int random_x = random_coordinate(WINDOW_WIDTH);
+  int random_y = random_coordinate(WINDOW_HEIGHT);
+  state->target->x = random_x;
+  state->target->y = random_y;
+  set_cube_to(cube_size, *state->pixelmap, -1, random_x, random_y);
+}
 
 static void wl_buffer_release(void *data, struct wl_buffer *wl_buffer) {
   /* Sent by the compositor when it's no longer using this buffer */
@@ -124,11 +155,18 @@ static struct wl_buffer *draw_frame(struct client_state *state) {
   wl_shm_pool_destroy(pool);
   close(fd);
 
+  static short pause_deletion_duration;
+
   if (state->direction == UP) {
     short *new_pixel = &(*state->pixelmap)[state->start->x][++state->start->y];
     if (*new_pixel > 0)
       state->game_state = OVER;
-    else
+    else if (*new_pixel < 0) {
+      pause_deletion_duration = 100;
+      generate_target(state);
+      *new_pixel = ++state->start->index;
+      // REFACTOR
+    } else
       *new_pixel = ++state->start->index;
   }
   if (state->direction == RIGHT) {
@@ -153,21 +191,25 @@ static struct wl_buffer *draw_frame(struct client_state *state) {
       *new_pixel = ++state->start->index;
   }
 
-  state->end->index++;
-  (*state->pixelmap)[state->end->x][state->end->y] = 0;
+  if (pause_deletion_duration > 0) {
+    pause_deletion_duration--;
+  } else {
+    state->end->index++;
+    (*state->pixelmap)[state->end->x][state->end->y] = 0;
 
-  if ((*state->pixelmap)[state->end->x + 1][state->end->y] ==
-      state->end->index) {
-    state->end->x++;
-  } else if ((*state->pixelmap)[state->end->x - 1][state->end->y] ==
-             state->end->index) {
-    state->end->x--;
-  } else if ((*state->pixelmap)[state->end->x][state->end->y + 1] ==
-             state->end->index) {
-    state->end->y++;
-  } else if ((*state->pixelmap)[state->end->x][state->end->y - 1] ==
-             state->end->index) {
-    state->end->y--;
+    if ((*state->pixelmap)[state->end->x + 1][state->end->y] ==
+        state->end->index) {
+      state->end->x++;
+    } else if ((*state->pixelmap)[state->end->x - 1][state->end->y] ==
+               state->end->index) {
+      state->end->x--;
+    } else if ((*state->pixelmap)[state->end->x][state->end->y + 1] ==
+               state->end->index) {
+      state->end->y++;
+    } else if ((*state->pixelmap)[state->end->x][state->end->y - 1] ==
+               state->end->index) {
+      state->end->y--;
+    }
   }
 
   for (int y = 0; y < WINDOW_HEIGHT; ++y) {
@@ -176,6 +218,8 @@ static struct wl_buffer *draw_frame(struct client_state *state) {
       if (state->game_state == PROGRESS) {
         if ((*state->pixelmap)[x][y] > 0) {
           data[y * WINDOW_WIDTH + x] = SNAKE_COLOR;
+        } else if ((*state->pixelmap)[x][y] < 0) {
+          data[y * WINDOW_WIDTH + x] = 0xFF00FF00;
         } else {
           data[y * WINDOW_WIDTH + x] = 0xFFEEEEEE;
         }
@@ -399,11 +443,15 @@ int main(int argc, char *argv[]) {
   struct coords end = {snake_starting_x - SNAKE_INITIAL_LENGTH,
                        snake_starting_y, 0};
 
+  struct coords target = {-1, -1};
+
   short pixelmap[WINDOW_WIDTH][WINDOW_HEIGHT] = {0};
   for (int index = SNAKE_INITIAL_LENGTH; snake_starting_x > snake_ending_x;
        snake_starting_x--) {
     pixelmap[snake_starting_x][snake_starting_y] = index--;
   }
+
+  srand(get_nanoseconds());
 
   struct client_state state = {
       .start = &start,
@@ -411,7 +459,12 @@ int main(int argc, char *argv[]) {
       .pixelmap = &pixelmap,
       .direction = RIGHT,
       .game_state = PROGRESS,
+      .target = &target,
   };
+
+  generate_target(&state);
+  printf("X1: %d\n", state.target->x);
+  printf("Y1: %d\n", state.target->y);
 
   state.wl_display = wl_display_connect(NULL);
   state.wl_registry = wl_display_get_registry(state.wl_display);
