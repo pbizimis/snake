@@ -62,6 +62,7 @@ static int allocate_shm_file(size_t size) {
 #define WINDOW_HEIGHT 500
 #define WINDOW_WIDTH 500
 #define SNAKE_COLOR 0xFF333333
+#define FRAME_OFFSET 10
 
 struct coords {
   int x;
@@ -134,6 +135,19 @@ static const struct wl_buffer_listener wl_buffer_listener = {
     .release = wl_buffer_release,
 };
 
+void move_start_pixel(struct client_state *state, short x, short y,
+                      short *pause_deletion_duration) {
+  short *new_pixel = &(*state->pixelmap)[x][y];
+  if (*new_pixel > 0)
+    state->game_state = OVER;
+  else if (*new_pixel < 0) {
+    *pause_deletion_duration = 100;
+    generate_target(state);
+    *new_pixel = ++state->start->index;
+  } else
+    *new_pixel = ++state->start->index;
+}
+
 static struct wl_buffer *draw_frame(struct client_state *state) {
   int stride = WINDOW_WIDTH * 4;
   int size = stride * WINDOW_HEIGHT;
@@ -158,37 +172,21 @@ static struct wl_buffer *draw_frame(struct client_state *state) {
   static short pause_deletion_duration;
 
   if (state->direction == UP) {
-    short *new_pixel = &(*state->pixelmap)[state->start->x][++state->start->y];
-    if (*new_pixel > 0)
-      state->game_state = OVER;
-    else if (*new_pixel < 0) {
-      pause_deletion_duration = 100;
-      generate_target(state);
-      *new_pixel = ++state->start->index;
-      // REFACTOR
-    } else
-      *new_pixel = ++state->start->index;
+
+    move_start_pixel(state, state->start->x, ++state->start->y,
+                     &pause_deletion_duration);
   }
   if (state->direction == RIGHT) {
-    short *new_pixel = &(*state->pixelmap)[++state->start->x][state->start->y];
-    if (*new_pixel > 0)
-      state->game_state = OVER;
-    else
-      *new_pixel = ++state->start->index;
+    move_start_pixel(state, ++state->start->x, state->start->y,
+                     &pause_deletion_duration);
   }
   if (state->direction == DOWN) {
-    short *new_pixel = &(*state->pixelmap)[state->start->x][--state->start->y];
-    if (*new_pixel > 0)
-      state->game_state = OVER;
-    else
-      *new_pixel = ++state->start->index;
+    move_start_pixel(state, state->start->x, --state->start->y,
+                     &pause_deletion_duration);
   }
   if (state->direction == LEFT) {
-    short *new_pixel = &(*state->pixelmap)[--state->start->x][state->start->y];
-    if (*new_pixel > 0)
-      state->game_state = OVER;
-    else
-      *new_pixel = ++state->start->index;
+    move_start_pixel(state, --state->start->x, state->start->y,
+                     &pause_deletion_duration);
   }
 
   if (pause_deletion_duration > 0) {
@@ -463,8 +461,6 @@ int main(int argc, char *argv[]) {
   };
 
   generate_target(&state);
-  printf("X1: %d\n", state.target->x);
-  printf("Y1: %d\n", state.target->y);
 
   state.wl_display = wl_display_connect(NULL);
   state.wl_registry = wl_display_get_registry(state.wl_display);
