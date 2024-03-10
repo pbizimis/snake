@@ -63,6 +63,7 @@ static int allocate_shm_file(size_t size) {
 #define WINDOW_WIDTH 500
 #define SNAKE_COLOR 0xFF333333
 #define FRAME_OFFSET 10
+#define PD(x) printf("%d\n", x);
 
 struct coords {
   int x;
@@ -103,6 +104,7 @@ int random_coordinate(int max_number) { return rand() % max_number + 1; }
 
 void set_cube_to(short cube_size, short pixelmap[WINDOW_WIDTH][WINDOW_HEIGHT],
                  short value, short x, short y) {
+  cube_size /= 2;
   for (int i = -cube_size; i < cube_size + 1; i++) {
     for (int j = -cube_size; j < cube_size + 1; j++) {
       pixelmap[x + i][y + j] = value;
@@ -112,7 +114,7 @@ void set_cube_to(short cube_size, short pixelmap[WINDOW_WIDTH][WINDOW_HEIGHT],
 
 void generate_target(struct client_state *state) {
 
-  short cube_size = 8;
+  short cube_size = 16;
 
   if (state->target->x > -1 && state->target->y > -1) {
     set_cube_to(cube_size, *state->pixelmap, 0, state->target->x,
@@ -121,6 +123,24 @@ void generate_target(struct client_state *state) {
 
   int random_x = random_coordinate(WINDOW_WIDTH);
   int random_y = random_coordinate(WINDOW_HEIGHT);
+
+  int minimum_offset = FRAME_OFFSET + cube_size / 2;
+
+  // check that target is not inside frame
+  if (random_x < minimum_offset) {
+    random_x = minimum_offset;
+  } else if (random_x >= WINDOW_WIDTH - minimum_offset) {
+    random_x = WINDOW_WIDTH - (minimum_offset + 1);
+  }
+  if (random_y < minimum_offset) {
+    random_y = minimum_offset;
+  } else if (random_y >= WINDOW_HEIGHT - minimum_offset) {
+    random_y = WINDOW_HEIGHT - (minimum_offset + 1);
+  }
+
+  PD(random_x);
+  PD(random_y);
+
   state->target->x = random_x;
   state->target->y = random_y;
   set_cube_to(cube_size, *state->pixelmap, -1, random_x, random_y);
@@ -138,7 +158,8 @@ static const struct wl_buffer_listener wl_buffer_listener = {
 void move_start_pixel(struct client_state *state, short x, short y,
                       short *pause_deletion_duration) {
   short *new_pixel = &(*state->pixelmap)[x][y];
-  if (*new_pixel > 0)
+  if (*new_pixel > 0 || x < FRAME_OFFSET || y < FRAME_OFFSET ||
+      x >= WINDOW_WIDTH - FRAME_OFFSET || y >= WINDOW_HEIGHT - FRAME_OFFSET)
     state->game_state = OVER;
   else if (*new_pixel < 0) {
     *pause_deletion_duration = 100;
@@ -219,7 +240,14 @@ static struct wl_buffer *draw_frame(struct client_state *state) {
         } else if ((*state->pixelmap)[x][y] < 0) {
           data[y * WINDOW_WIDTH + x] = 0xFF00FF00;
         } else {
-          data[y * WINDOW_WIDTH + x] = 0xFFEEEEEE;
+          // put this outside of the draw frame (it is fixed)
+          if (x < FRAME_OFFSET || y < FRAME_OFFSET ||
+              x >= WINDOW_WIDTH - FRAME_OFFSET ||
+              y >= WINDOW_HEIGHT - FRAME_OFFSET) {
+            data[y * WINDOW_WIDTH + x] = 0xFF333333;
+          } else {
+            data[y * WINDOW_WIDTH + x] = 0xFFEEEEEE;
+          }
         }
       } else if (state->game_state == OVER) {
         data[y * WINDOW_WIDTH + x] = 0xFFFF0000;
