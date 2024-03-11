@@ -1,4 +1,6 @@
 #define _POSIX_C_SOURCE 200112L
+#include "config.h"
+#include "font.c"
 #include "xdg-shell-client-protocol.h"
 #include <assert.h>
 #include <errno.h>
@@ -57,14 +59,6 @@ static int allocate_shm_file(size_t size) {
   return fd;
 }
 
-#define SNAKE_INITIAL_LENGTH 32
-#define SNAKE_HEIGHT 8
-#define WINDOW_HEIGHT 500
-#define WINDOW_WIDTH 500
-#define SNAKE_COLOR 0xFF333333
-#define FRAME_OFFSET 10
-#define PD(x) printf("%d\n", x);
-
 struct coords {
   int x;
   int y;
@@ -98,52 +92,69 @@ struct client_state {
   struct coords *start;
   struct coords *end;
   struct coords *target;
+  short score;
 };
 
 int random_coordinate(int max_number) { return rand() % max_number + 1; }
 
-void set_cube_to(short cube_size, short pixelmap[WINDOW_WIDTH][WINDOW_HEIGHT],
-                 short value, short x, short y) {
-  cube_size /= 2;
+bool set_cube_to(short pixelmap[WINDOW_WIDTH][WINDOW_HEIGHT], short value,
+                 short x, short y) {
+
+  struct coords track_changed_coords[(TARGET_OFFSET + 1) * (TARGET_OFFSET + 1)];
+  short count = 0;
+
+  short cube_size = TARGET_OFFSET / 2;
   for (int i = -cube_size; i < cube_size + 1; i++) {
     for (int j = -cube_size; j < cube_size + 1; j++) {
-      pixelmap[x + i][y + j] = value;
+
+      if (pixelmap[x + i][y + j] > 0) {
+        for (int k = 0; k < count; k++) {
+          pixelmap[x + i][y + j] = 0;
+        }
+
+        return false;
+      } else {
+        pixelmap[x + i][y + j] = value;
+        track_changed_coords[count++] = (struct coords){x + i, y + j};
+      }
     }
   }
+  return true;
 }
 
 void generate_target(struct client_state *state) {
 
-  short cube_size = 16;
-
   if (state->target->x > -1 && state->target->y > -1) {
-    set_cube_to(cube_size, *state->pixelmap, 0, state->target->x,
-                state->target->y);
+    set_cube_to(*state->pixelmap, 0, state->target->x, state->target->y);
   }
 
+  bool success = false;
   int random_x = random_coordinate(WINDOW_WIDTH);
   int random_y = random_coordinate(WINDOW_HEIGHT);
 
-  int minimum_offset = FRAME_OFFSET + cube_size / 2;
+  while (!success) {
+    random_x = random_coordinate(WINDOW_WIDTH);
+    random_y = random_coordinate(WINDOW_HEIGHT);
 
-  // check that target is not inside frame
-  if (random_x < minimum_offset) {
-    random_x = minimum_offset;
-  } else if (random_x >= WINDOW_WIDTH - minimum_offset) {
-    random_x = WINDOW_WIDTH - (minimum_offset + 1);
-  }
-  if (random_y < minimum_offset) {
-    random_y = minimum_offset;
-  } else if (random_y >= WINDOW_HEIGHT - minimum_offset) {
-    random_y = WINDOW_HEIGHT - (minimum_offset + 1);
-  }
+    int minimum_offset = FRAME_OFFSET + TARGET_OFFSET / 2;
 
-  PD(random_x);
-  PD(random_y);
+    // check that target is not inside frame
+    if (random_x < minimum_offset) {
+      random_x = minimum_offset;
+    } else if (random_x >= WINDOW_WIDTH - minimum_offset) {
+      random_x = WINDOW_WIDTH - (minimum_offset + 1);
+    }
+    if (random_y < minimum_offset) {
+      random_y = minimum_offset;
+    } else if (random_y >= WINDOW_HEIGHT - minimum_offset) {
+      random_y = WINDOW_HEIGHT - (minimum_offset + 1);
+    }
+
+    success = set_cube_to(*state->pixelmap, -1, random_x, random_y);
+  }
 
   state->target->x = random_x;
   state->target->y = random_y;
-  set_cube_to(cube_size, *state->pixelmap, -1, random_x, random_y);
 }
 
 static void wl_buffer_release(void *data, struct wl_buffer *wl_buffer) {
@@ -165,6 +176,7 @@ void move_start_pixel(struct client_state *state, short x, short y,
     *pause_deletion_duration = 100;
     generate_target(state);
     *new_pixel = ++state->start->index;
+    state->score++;
   } else
     *new_pixel = ++state->start->index;
 }
@@ -231,6 +243,8 @@ static struct wl_buffer *draw_frame(struct client_state *state) {
     }
   }
 
+  render_score(state->pixelmap, WINDOW_WIDTH - 100, 2, state->score);
+
   for (int y = 0; y < WINDOW_HEIGHT; ++y) {
     for (int x = 0; x < WINDOW_WIDTH; ++x) {
 
@@ -238,7 +252,13 @@ static struct wl_buffer *draw_frame(struct client_state *state) {
         if ((*state->pixelmap)[x][y] > 0) {
           data[y * WINDOW_WIDTH + x] = SNAKE_COLOR;
         } else if ((*state->pixelmap)[x][y] < 0) {
-          data[y * WINDOW_WIDTH + x] = 0xFF00FF00;
+          if ((*state->pixelmap)[x][y] == -2) {
+            data[y * WINDOW_WIDTH + x] = 0xFF00FF00;
+          } else {
+            // background
+            data[y * WINDOW_WIDTH + x] = 0xFF00FF00;
+          }
+
         } else {
           // put this outside of the draw frame (it is fixed)
           if (x < FRAME_OFFSET || y < FRAME_OFFSET ||
@@ -486,6 +506,7 @@ int main(int argc, char *argv[]) {
       .direction = RIGHT,
       .game_state = PROGRESS,
       .target = &target,
+      .score = 0,
   };
 
   generate_target(&state);
