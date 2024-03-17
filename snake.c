@@ -80,8 +80,6 @@ struct client_state {
   struct xdg_toplevel *xdg_toplevel;
   struct wl_keyboard *wl_keyboard;
   /* State */
-  float offset;
-  uint32_t last_frame;
   struct xkb_state *xkb_state;
   struct xkb_context *xkb_context;
   struct xkb_keymap *xkb_keymap;
@@ -109,7 +107,7 @@ bool set_cube_to(short pixelmap[WINDOW_WIDTH][WINDOW_HEIGHT], short value,
 
       if (pixelmap[x + i][y + j] > 0) {
         for (int k = 0; k < count; k++) {
-          pixelmap[x + i][y + j] = 0;
+          pixelmap[track_changed_coords[k].x][track_changed_coords[k].y] = 0;
         }
 
         return false;
@@ -173,6 +171,7 @@ void move_start_pixel(struct client_state *state, short x, short y,
       x >= WINDOW_WIDTH - FRAME_OFFSET || y >= WINDOW_HEIGHT - FRAME_OFFSET)
     state->game_state = OVER;
   else if (*new_pixel < 0) {
+      D
     *pause_deletion_duration = 100;
     generate_target(state);
     *new_pixel = ++state->start->index;
@@ -256,7 +255,7 @@ static struct wl_buffer *draw_frame(struct client_state *state) {
             data[y * WINDOW_WIDTH + x] = 0xFF00FF00;
           } else {
             // background
-            data[y * WINDOW_WIDTH + x] = 0xFF00FF00;
+            data[y * WINDOW_WIDTH + x] = 0xFFFFC0CB;
           }
 
         } else {
@@ -315,19 +314,11 @@ static void wl_surface_frame_done(void *data, struct wl_callback *cb,
   cb = wl_surface_frame(state->wl_surface);
   wl_callback_add_listener(cb, &wl_surface_frame_listener, state);
 
-  /* Update scroll amount at 24 pixels per second */
-  if (state->last_frame != 0) {
-    int elapsed = time - state->last_frame;
-    state->offset += elapsed / 1000.0 * 24;
-  }
-
   /* Submit a frame for this event */
   struct wl_buffer *buffer = draw_frame(state);
   wl_surface_attach(state->wl_surface, buffer, 0, 0);
   wl_surface_damage_buffer(state->wl_surface, 0, 0, INT32_MAX, INT32_MAX);
   wl_surface_commit(state->wl_surface);
-
-  state->last_frame = time;
 }
 
 static const struct wl_callback_listener wl_surface_frame_listener = {
@@ -477,7 +468,7 @@ static const struct wl_registry_listener wl_registry_listener = {
     .global_remove = registry_global_remove,
 };
 
-int main(int argc, char *argv[]) {
+int main() {
 
   int snake_starting_x = WINDOW_WIDTH / 2;
   int snake_starting_y = WINDOW_HEIGHT / 2;
@@ -489,7 +480,7 @@ int main(int argc, char *argv[]) {
   struct coords end = {snake_starting_x - SNAKE_INITIAL_LENGTH,
                        snake_starting_y, 0};
 
-  struct coords target = {-1, -1};
+  struct coords target = {-1, -1, -1};
 
   short pixelmap[WINDOW_WIDTH][WINDOW_HEIGHT] = {0};
   for (int index = SNAKE_INITIAL_LENGTH; snake_starting_x > snake_ending_x;

@@ -4,10 +4,10 @@
 
 void render_score(short (*buffer)[WINDOW_WIDTH][WINDOW_HEIGHT], short x,
                   short y, short score) {
-  char score_text[6] = "Score ";
-  char text_with_score[MAX_SCORE_DIGITS + 6];
+  char score_text[] = "Score ";
+  char text_with_score[sizeof(score_text) + sizeof(score) + 1];
 
-  sprintf(text_with_score, "%s%d", score_text, score);
+  sprintf(text_with_score, "%s%hu", score_text, score);
   render_font(buffer, x, y, text_with_score);
 }
 
