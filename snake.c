@@ -1,7 +1,7 @@
 #define _POSIX_C_SOURCE 200112L
 #include "config.h"
 #include "font.c"
-#include "xdg-shell-client-protocol.h"
+#include "glue_code/xdg-shell-client-protocol.h"
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -171,7 +171,6 @@ void move_start_pixel(struct client_state *state, short x, short y,
       x >= WINDOW_WIDTH - FRAME_OFFSET || y >= WINDOW_HEIGHT - FRAME_OFFSET)
     state->game_state = OVER;
   else if (*new_pixel < 0) {
-      D
     *pause_deletion_duration = 100;
     generate_target(state);
     *new_pixel = ++state->start->index;
@@ -385,7 +384,7 @@ static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
 
 static void wl_keyboard_leave(void *data, struct wl_keyboard *wl_keyboard,
                               uint32_t serial, struct wl_surface *surface) {
-  fprintf(stderr, "keyboard leave\n");
+  /* This space deliberately left blank */
 }
 
 static void wl_keyboard_modifiers(void *data, struct wl_keyboard *wl_keyboard,
@@ -399,7 +398,7 @@ static void wl_keyboard_modifiers(void *data, struct wl_keyboard *wl_keyboard,
 
 static void wl_keyboard_repeat_info(void *data, struct wl_keyboard *wl_keyboard,
                                     int32_t rate, int32_t delay) {
-  /* Left as an exercise for the reader */
+  /* This space deliberately left blank */
 }
 
 static const struct wl_keyboard_listener wl_keyboard_listener = {
@@ -428,7 +427,7 @@ static void wl_seat_capabilities(void *data, struct wl_seat *wl_seat,
 
 static void wl_seat_name(void *data, struct wl_seat *wl_seat,
                          const char *name) {
-  fprintf(stderr, "seat name: %s\n", name);
+  /* This space deliberately left blank */
 }
 
 static const struct wl_seat_listener wl_seat_listener = {
