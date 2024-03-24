@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -64,6 +65,40 @@ struct coords {
   int y;
   int index;
 };
+
+struct wayland_state {
+  struct wl_display *wl_display;
+  struct wl_registry *wl_registry;
+  struct wl_shm *wl_shm;
+  struct wl_compositor *wl_compositor;
+  struct xdg_wm_base *xdg_wm_base;
+  struct wl_seat *wl_seat;
+  /* Objects */
+  struct wl_surface *wl_surface;
+  struct xdg_surface *xdg_surface;
+  struct xdg_toplevel *xdg_toplevel;
+  struct wl_keyboard *wl_keyboard;
+  /* State */
+  struct xkb_state *xkb_state;
+  struct xkb_context *xkb_context;
+  struct xkb_keymap *xkb_keymap;
+};
+
+struct buffer {
+  struct wl_buffer *wl_buffer;
+  uint32_t *shm_data;
+  bool busy;
+};
+
+struct window_state {
+  struct wl_surface *wl_surface;
+  struct buffer buffers[2];
+  struct buffer *prev_buffer;
+};
+
+struct input_state {};
+
+struct game_state {};
 
 /* Wayland code */
 struct client_state {
@@ -178,6 +213,7 @@ void move_start_pixel(struct client_state *state, short x, short y,
   } else
     *new_pixel = ++state->start->index;
 }
+
 
 static struct wl_buffer *draw_frame(struct client_state *state) {
   int stride = WINDOW_WIDTH * 4;
@@ -467,28 +503,67 @@ static const struct wl_registry_listener wl_registry_listener = {
     .global_remove = registry_global_remove,
 };
 
-void setup_wayland(struct client_state *state) {
+void setup_OLD_wayland(struct client_state *wayland_state) {
 
-  state->wl_display = wl_display_connect(NULL);
-  state->wl_registry = wl_display_get_registry(state->wl_display);
-  state->xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-  wl_registry_add_listener(state->wl_registry, &wl_registry_listener, state);
-  wl_display_roundtrip(state->wl_display);
+  wayland_state->wl_display = wl_display_connect(NULL);
+  wayland_state->wl_registry =
+      wl_display_get_registry(wayland_state->wl_display);
+  wayland_state->xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+  wl_registry_add_listener(wayland_state->wl_registry, &wl_registry_listener,
+                           wayland_state);
+  wl_display_roundtrip(wayland_state->wl_display);
 
-  state->wl_surface = wl_compositor_create_surface(state->wl_compositor);
-  state->xdg_surface =
-      xdg_wm_base_get_xdg_surface(state->xdg_wm_base, state->wl_surface);
-  xdg_surface_add_listener(state->xdg_surface, &xdg_surface_listener, state);
-  state->xdg_toplevel = xdg_surface_get_toplevel(state->xdg_surface);
-  xdg_toplevel_set_title(state->xdg_toplevel, "Example client");
-  wl_surface_commit(state->wl_surface);
+  wayland_state->wl_surface =
+      wl_compositor_create_surface(wayland_state->wl_compositor);
+  wayland_state->xdg_surface = xdg_wm_base_get_xdg_surface(
+      wayland_state->xdg_wm_base, wayland_state->wl_surface);
+  xdg_surface_add_listener(wayland_state->xdg_surface, &xdg_surface_listener,
+                           wayland_state);
+  wayland_state->xdg_toplevel =
+      xdg_surface_get_toplevel(wayland_state->xdg_surface);
+  xdg_toplevel_set_title(wayland_state->xdg_toplevel, "Example client");
+  wl_surface_commit(wayland_state->wl_surface);
 
-  struct wl_callback *cb = wl_surface_frame(state->wl_surface);
-  wl_callback_add_listener(cb, &wl_surface_frame_listener, state);
+  struct wl_callback *cb = wl_surface_frame(wayland_state->wl_surface);
+  wl_callback_add_listener(cb, &wl_surface_frame_listener, wayland_state);
 
-  while (wl_display_dispatch(state->wl_display)) {
+  while (wl_display_dispatch(wayland_state->wl_display)) {
     /* This space deliberately left blank */
   }
+}
+
+struct wayland_state *setup_wayland() {
+
+  struct wayland_state *wayland_state;
+  wayland_state = malloc(sizeof(*wayland_state));
+
+  wayland_state->wl_display = wl_display_connect(NULL);
+  wayland_state->wl_registry =
+      wl_display_get_registry(wayland_state->wl_display);
+  wayland_state->xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+  wl_registry_add_listener(wayland_state->wl_registry, &wl_registry_listener,
+                           wayland_state);
+  wl_display_roundtrip(wayland_state->wl_display);
+
+  wayland_state->wl_surface =
+      wl_compositor_create_surface(wayland_state->wl_compositor);
+  wayland_state->xdg_surface = xdg_wm_base_get_xdg_surface(
+      wayland_state->xdg_wm_base, wayland_state->wl_surface);
+  xdg_surface_add_listener(wayland_state->xdg_surface, &xdg_surface_listener,
+                           wayland_state);
+  wayland_state->xdg_toplevel =
+      xdg_surface_get_toplevel(wayland_state->xdg_surface);
+  xdg_toplevel_set_title(wayland_state->xdg_toplevel, "Example client");
+  wl_surface_commit(wayland_state->wl_surface);
+
+  struct wl_callback *cb = wl_surface_frame(wayland_state->wl_surface);
+  wl_callback_add_listener(cb, &wl_surface_frame_listener, wayland_state);
+
+  while (wl_display_dispatch(wayland_state->wl_display)) {
+    /* This space deliberately left blank */
+  }
+
+  return wayland_state;
 }
 
 void update_game() {}
@@ -496,6 +571,55 @@ void update_game() {}
 void render_frame() {}
 
 void setup_game() {}
+
+struct window_state *setup_window_state(struct wayland_state *wayland_state) {
+  struct window_state *window_state;
+  window_state = malloc(sizeof(*window_state));
+
+  // Calculate shared memory pool size
+  int buffer_amount = 2;
+  int stride = WINDOW_WIDTH * 4;
+  int shm_pool_size = stride * WINDOW_HEIGHT * buffer_amount;
+
+  int fd = allocate_shm_file(shm_pool_size);
+  if (fd == -1) {
+    fprintf(stderr, "SHM allocation failed");
+  }
+
+  uint8_t *pool_data =
+      mmap(NULL, shm_pool_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  if (pool_data == MAP_FAILED) {
+    fprintf(stderr, "MMAP failed");
+    close(fd);
+    return NULL;
+  }
+
+  struct wl_shm_pool *pool =
+      wl_shm_create_pool(wayland_state->wl_shm, fd, shm_pool_size);
+
+  int buffer_offset = stride * WINDOW_HEIGHT;
+
+  struct wl_buffer *buffer1 = wl_shm_pool_create_buffer(
+      pool, 0, WINDOW_WIDTH, WINDOW_HEIGHT, stride, WL_SHM_FORMAT_XRGB8888);
+  uint32_t *shm_data_buffer1 = (uint32_t *)&pool_data[0];
+
+  struct wl_buffer *buffer2 =
+      wl_shm_pool_create_buffer(pool, buffer_offset, WINDOW_WIDTH,
+                                WINDOW_HEIGHT, stride, WL_SHM_FORMAT_XRGB8888);
+  uint32_t *shm_data_buffer2 = (uint32_t *)&pool_data[buffer_offset];
+
+  window_state->buffers[0].wl_buffer = buffer1;
+  window_state->buffers[0].shm_data = shm_data_buffer1;
+  window_state->buffers[0].busy = false;
+  window_state->buffers[1].wl_buffer = buffer2;
+  window_state->buffers[1].shm_data = shm_data_buffer2;
+  window_state->buffers[1].busy = false;
+
+  wl_shm_pool_destroy(pool);
+  close(fd);
+
+  return window_state;
+}
 
 int main() {
 
@@ -529,7 +653,11 @@ int main() {
 
   generate_target(&state);
 
-  setup_wayland(&state);
+  // struct wayland_state *wayland_state = setup_wayland();
+  // struct window_state *window_state = setup_window_state(wayland_state);
+
+  setup_OLD_wayland(&state);
+
 
   return 0;
 }
