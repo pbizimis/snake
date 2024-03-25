@@ -128,6 +128,8 @@ struct client_state {
   short score;
 };
 
+void render_frame(uint32_t *, struct client_state *);
+
 int random_coordinate(int max_number) { return rand() % max_number + 1; }
 
 bool set_cube_to(short pixelmap[WINDOW_WIDTH][WINDOW_HEIGHT], short value,
@@ -214,28 +216,7 @@ void move_start_pixel(struct client_state *state, short x, short y,
     *new_pixel = ++state->start->index;
 }
 
-
-static struct wl_buffer *draw_frame(struct client_state *state) {
-  int stride = WINDOW_WIDTH * 4;
-  int size = stride * WINDOW_HEIGHT;
-
-  int fd = allocate_shm_file(size);
-  if (fd == -1) {
-    return NULL;
-  }
-
-  uint32_t *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-  if (data == MAP_FAILED) {
-    close(fd);
-    return NULL;
-  }
-
-  struct wl_shm_pool *pool = wl_shm_create_pool(state->wl_shm, fd, size);
-  struct wl_buffer *buffer = wl_shm_pool_create_buffer(
-      pool, 0, WINDOW_WIDTH, WINDOW_HEIGHT, stride, WL_SHM_FORMAT_XRGB8888);
-  wl_shm_pool_destroy(pool);
-  close(fd);
-
+void update_game_state(struct client_state *state) {
   static short pause_deletion_duration;
 
   if (state->direction == UP) {
@@ -276,38 +257,32 @@ static struct wl_buffer *draw_frame(struct client_state *state) {
       state->end->y--;
     }
   }
+}
+
+static struct wl_buffer *draw_frame(struct client_state *state) {
+  int stride = WINDOW_WIDTH * 4;
+  int size = stride * WINDOW_HEIGHT;
+
+  int fd = allocate_shm_file(size);
+  if (fd == -1) {
+    return NULL;
+  }
+
+  uint32_t *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  if (data == MAP_FAILED) {
+    close(fd);
+    return NULL;
+  }
+
+  struct wl_shm_pool *pool = wl_shm_create_pool(state->wl_shm, fd, size);
+  struct wl_buffer *buffer = wl_shm_pool_create_buffer(
+      pool, 0, WINDOW_WIDTH, WINDOW_HEIGHT, stride, WL_SHM_FORMAT_XRGB8888);
+  wl_shm_pool_destroy(pool);
+  close(fd);
 
   render_score(state->pixelmap, WINDOW_WIDTH - 100, 2, state->score);
+  render_frame(data, state);
 
-  for (int y = 0; y < WINDOW_HEIGHT; ++y) {
-    for (int x = 0; x < WINDOW_WIDTH; ++x) {
-
-      if (state->game_state == PROGRESS) {
-        if ((*state->pixelmap)[x][y] > 0) {
-          data[y * WINDOW_WIDTH + x] = SNAKE_COLOR;
-        } else if ((*state->pixelmap)[x][y] < 0) {
-          if ((*state->pixelmap)[x][y] == -2) {
-            data[y * WINDOW_WIDTH + x] = 0xFF00FF00;
-          } else {
-            // background
-            data[y * WINDOW_WIDTH + x] = 0xFFFFC0CB;
-          }
-
-        } else {
-          // put this outside of the draw frame (it is fixed)
-          if (x < FRAME_OFFSET || y < FRAME_OFFSET ||
-              x >= WINDOW_WIDTH - FRAME_OFFSET ||
-              y >= WINDOW_HEIGHT - FRAME_OFFSET) {
-            data[y * WINDOW_WIDTH + x] = 0xFF333333;
-          } else {
-            data[y * WINDOW_WIDTH + x] = 0xFFEEEEEE;
-          }
-        }
-      } else if (state->game_state == OVER) {
-        data[y * WINDOW_WIDTH + x] = 0xFFFF0000;
-      }
-    }
-  }
 
   munmap(data, size);
   wl_buffer_add_listener(buffer, &wl_buffer_listener, NULL);
@@ -343,17 +318,6 @@ static void wl_surface_frame_done(void *data, struct wl_callback *cb,
                                   uint32_t time) {
   /* Destroy this callback */
   wl_callback_destroy(cb);
-
-  /* Request another frame */
-  struct client_state *state = data;
-  cb = wl_surface_frame(state->wl_surface);
-  wl_callback_add_listener(cb, &wl_surface_frame_listener, state);
-
-  /* Submit a frame for this event */
-  struct wl_buffer *buffer = draw_frame(state);
-  wl_surface_attach(state->wl_surface, buffer, 0, 0);
-  wl_surface_damage_buffer(state->wl_surface, 0, 0, INT32_MAX, INT32_MAX);
-  wl_surface_commit(state->wl_surface);
 }
 
 static const struct wl_callback_listener wl_surface_frame_listener = {
@@ -526,10 +490,6 @@ void setup_OLD_wayland(struct client_state *wayland_state) {
 
   struct wl_callback *cb = wl_surface_frame(wayland_state->wl_surface);
   wl_callback_add_listener(cb, &wl_surface_frame_listener, wayland_state);
-
-  while (wl_display_dispatch(wayland_state->wl_display)) {
-    /* This space deliberately left blank */
-  }
 }
 
 struct wayland_state *setup_wayland() {
@@ -568,7 +528,38 @@ struct wayland_state *setup_wayland() {
 
 void update_game() {}
 
-void render_frame() {}
+void render_frame(uint32_t *data, struct client_state *state) {
+
+  for (int y = 0; y < WINDOW_HEIGHT; ++y) {
+    for (int x = 0; x < WINDOW_WIDTH; ++x) {
+
+      if (state->game_state == PROGRESS) {
+        if ((*state->pixelmap)[x][y] > 0) {
+          data[y * WINDOW_WIDTH + x] = SNAKE_COLOR;
+        } else if ((*state->pixelmap)[x][y] < 0) {
+          if ((*state->pixelmap)[x][y] == -2) {
+            data[y * WINDOW_WIDTH + x] = 0xFF00FF00;
+          } else {
+            // background
+            data[y * WINDOW_WIDTH + x] = 0xFFFFC0CB;
+          }
+
+        } else {
+          // put this outside of the draw frame (it is fixed)
+          if (x < FRAME_OFFSET || y < FRAME_OFFSET ||
+              x >= WINDOW_WIDTH - FRAME_OFFSET ||
+              y >= WINDOW_HEIGHT - FRAME_OFFSET) {
+            data[y * WINDOW_WIDTH + x] = 0xFF333333;
+          } else {
+            data[y * WINDOW_WIDTH + x] = 0xFFEEEEEE;
+          }
+        }
+      } else if (state->game_state == OVER) {
+        data[y * WINDOW_WIDTH + x] = 0xFFFF0000;
+      }
+    }
+  }
+}
 
 void setup_game() {}
 
@@ -654,10 +645,24 @@ int main() {
   generate_target(&state);
 
   // struct wayland_state *wayland_state = setup_wayland();
-  // struct window_state *window_state = setup_window_state(wayland_state);
+  // struct window_state *window_state = setup_window_state(&state);
 
   setup_OLD_wayland(&state);
 
+  int counter = 0;
+
+  while (1) {
+
+    if ((++counter % 50) == 0 || counter == 1) {
+        wl_display_dispatch(state.wl_display);
+      update_game_state(&state);
+    }
+
+    struct wl_buffer *buffer = draw_frame(&state);
+    wl_surface_attach(state.wl_surface, buffer, 0, 0);
+    wl_surface_damage_buffer(state.wl_surface, 0, 0, INT32_MAX, INT32_MAX);
+    wl_surface_commit(state.wl_surface);
+  }
 
   return 0;
 }
