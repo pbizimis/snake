@@ -1,10 +1,10 @@
 #pragma once
 #include "config.h"
 
-void render_score(short (*buffer)[WINDOW_WIDTH][WINDOW_HEIGHT], short x,
+void render_score(short buffer[WINDOW_WIDTH][WINDOW_HEIGHT], short x,
                   short y, short score);
 
-void render_font(short (*buffer)[WINDOW_WIDTH][WINDOW_HEIGHT], short x, short y,
+void render_font(short buffer[WINDOW_WIDTH][WINDOW_HEIGHT], short x, short y,
                  char text[]);
 
 /*

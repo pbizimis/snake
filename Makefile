@@ -1,7 +1,7 @@
 CC = gcc
 LDLIBS = -lwayland-client -lxkbcommon -lrt
-CFLAGS = -Wall -Wextra -std=c17 -Wpedantic
-SRCS = snake.c glue_code/xdg-shell-protocol.c
+CFLAGS = -Wall -std=c17 -Wpedantic
+SRCS = main.c snake.c font.c glue_code/xdg-shell-protocol.c
 OBJS = $(SRCS:.c=.o)
 TARGET = snake
 

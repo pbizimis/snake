@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200112L
+#include "snake.h"
 #include "config.h"
-#include "font.c"
+#include "font.h"
 #include "glue_code/xdg-shell-client-protocol.h"
 #include <assert.h>
 #include <errno.h>
@@ -60,11 +61,6 @@ static int allocate_shm_file(size_t size) {
   return fd;
 }
 
-struct coords {
-  int x;
-  int y;
-  int index;
-};
 
 struct wayland_state {
   struct wl_display *wl_display;
@@ -93,7 +89,6 @@ struct buffer {
 struct window_state {
   struct wl_surface *wl_surface;
   struct buffer buffers[2];
-  struct buffer *prev_buffer;
 };
 
 struct input_state {};
@@ -101,34 +96,14 @@ struct input_state {};
 struct game_state {};
 
 /* Wayland code */
-struct client_state {
-  /* Globals */
-  struct wl_display *wl_display;
-  struct wl_registry *wl_registry;
-  struct wl_shm *wl_shm;
-  struct wl_compositor *wl_compositor;
-  struct xdg_wm_base *xdg_wm_base;
-  struct wl_seat *wl_seat;
-  /* Objects */
-  struct wl_surface *wl_surface;
-  struct xdg_surface *xdg_surface;
-  struct xdg_toplevel *xdg_toplevel;
-  struct wl_keyboard *wl_keyboard;
-  /* State */
-  struct xkb_state *xkb_state;
-  struct xkb_context *xkb_context;
-  struct xkb_keymap *xkb_keymap;
-  /* Game State */
-  enum Direction { UP, RIGHT, DOWN, LEFT } direction;
-  enum GameState { PROGRESS, OVER } game_state;
-  short (*pixelmap)[WINDOW_WIDTH][WINDOW_HEIGHT];
-  struct coords *start;
-  struct coords *end;
-  struct coords *target;
-  short score;
-};
 
-void render_frame(uint32_t *, struct client_state *);
+static void buffer_release(void *data, struct wl_buffer *buffer) {
+  struct buffer *released_buffer = data;
+
+  released_buffer->busy = 0;
+}
+
+static const struct wl_buffer_listener buffer_listener = {buffer_release};
 
 int random_coordinate(int max_number) { return rand() % max_number + 1; }
 
@@ -159,8 +134,8 @@ bool set_cube_to(short pixelmap[WINDOW_WIDTH][WINDOW_HEIGHT], short value,
 
 void generate_target(struct client_state *state) {
 
-  if (state->target->x > -1 && state->target->y > -1) {
-    set_cube_to(*state->pixelmap, 0, state->target->x, state->target->y);
+  if (state->target.x > -1 && state->target.y > -1) {
+    set_cube_to(state->pixelmap, 0, state->target.x, state->target.y);
   }
 
   bool success = false;
@@ -185,35 +160,26 @@ void generate_target(struct client_state *state) {
       random_y = WINDOW_HEIGHT - (minimum_offset + 1);
     }
 
-    success = set_cube_to(*state->pixelmap, -1, random_x, random_y);
+    success = set_cube_to(state->pixelmap, -1, random_x, random_y);
   }
 
-  state->target->x = random_x;
-  state->target->y = random_y;
+  state->target.x = random_x;
+  state->target.y = random_y;
 }
-
-static void wl_buffer_release(void *data, struct wl_buffer *wl_buffer) {
-  /* Sent by the compositor when it's no longer using this buffer */
-  wl_buffer_destroy(wl_buffer);
-}
-
-static const struct wl_buffer_listener wl_buffer_listener = {
-    .release = wl_buffer_release,
-};
 
 void move_start_pixel(struct client_state *state, short x, short y,
                       short *pause_deletion_duration) {
-  short *new_pixel = &(*state->pixelmap)[x][y];
+  short *new_pixel = &(state->pixelmap[x][y]);
   if (*new_pixel > 0 || x < FRAME_OFFSET || y < FRAME_OFFSET ||
       x >= WINDOW_WIDTH - FRAME_OFFSET || y >= WINDOW_HEIGHT - FRAME_OFFSET)
     state->game_state = OVER;
   else if (*new_pixel < 0) {
     *pause_deletion_duration = 100;
     generate_target(state);
-    *new_pixel = ++state->start->index;
+    *new_pixel = ++state->start.index;
     state->score++;
   } else
-    *new_pixel = ++state->start->index;
+    *new_pixel = ++state->start.index;
 }
 
 void update_game_state(struct client_state *state) {
@@ -221,72 +187,42 @@ void update_game_state(struct client_state *state) {
 
   if (state->direction == UP) {
 
-    move_start_pixel(state, state->start->x, ++state->start->y,
+    move_start_pixel(state, state->start.x, ++state->start.y,
                      &pause_deletion_duration);
   }
   if (state->direction == RIGHT) {
-    move_start_pixel(state, ++state->start->x, state->start->y,
+    move_start_pixel(state, ++state->start.x, state->start.y,
                      &pause_deletion_duration);
   }
   if (state->direction == DOWN) {
-    move_start_pixel(state, state->start->x, --state->start->y,
+    move_start_pixel(state, state->start.x, --state->start.y,
                      &pause_deletion_duration);
   }
   if (state->direction == LEFT) {
-    move_start_pixel(state, --state->start->x, state->start->y,
+    move_start_pixel(state, --state->start.x, state->start.y,
                      &pause_deletion_duration);
   }
 
   if (pause_deletion_duration > 0) {
     pause_deletion_duration--;
   } else {
-    state->end->index++;
-    (*state->pixelmap)[state->end->x][state->end->y] = 0;
+    state->end.index++;
+    state->pixelmap[state->end.x][state->end.y] = 0;
 
-    if ((*state->pixelmap)[state->end->x + 1][state->end->y] ==
-        state->end->index) {
-      state->end->x++;
-    } else if ((*state->pixelmap)[state->end->x - 1][state->end->y] ==
-               state->end->index) {
-      state->end->x--;
-    } else if ((*state->pixelmap)[state->end->x][state->end->y + 1] ==
-               state->end->index) {
-      state->end->y++;
-    } else if ((*state->pixelmap)[state->end->x][state->end->y - 1] ==
-               state->end->index) {
-      state->end->y--;
+    if (state->pixelmap[state->end.x + 1][state->end.y] ==
+        state->end.index) {
+      state->end.x++;
+    } else if (state->pixelmap[state->end.x - 1][state->end.y] ==
+               state->end.index) {
+      state->end.x--;
+    } else if (state->pixelmap[state->end.x][state->end.y + 1] ==
+               state->end.index) {
+      state->end.y++;
+    } else if (state->pixelmap[state->end.x][state->end.y - 1] ==
+               state->end.index) {
+      state->end.y--;
     }
   }
-}
-
-static struct wl_buffer *draw_frame(struct client_state *state) {
-  int stride = WINDOW_WIDTH * 4;
-  int size = stride * WINDOW_HEIGHT;
-
-  int fd = allocate_shm_file(size);
-  if (fd == -1) {
-    return NULL;
-  }
-
-  uint32_t *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-  if (data == MAP_FAILED) {
-    close(fd);
-    return NULL;
-  }
-
-  struct wl_shm_pool *pool = wl_shm_create_pool(state->wl_shm, fd, size);
-  struct wl_buffer *buffer = wl_shm_pool_create_buffer(
-      pool, 0, WINDOW_WIDTH, WINDOW_HEIGHT, stride, WL_SHM_FORMAT_XRGB8888);
-  wl_shm_pool_destroy(pool);
-  close(fd);
-
-  render_score(state->pixelmap, WINDOW_WIDTH - 100, 2, state->score);
-  render_frame(data, state);
-
-
-  munmap(data, size);
-  wl_buffer_add_listener(buffer, &wl_buffer_listener, NULL);
-  return buffer;
 }
 
 static void xdg_surface_configure(void *data, struct xdg_surface *xdg_surface,
@@ -294,8 +230,8 @@ static void xdg_surface_configure(void *data, struct xdg_surface *xdg_surface,
   struct client_state *state = data;
   xdg_surface_ack_configure(xdg_surface, serial);
 
-  struct wl_buffer *buffer = draw_frame(state);
-  wl_surface_attach(state->wl_surface, buffer, 0, 0);
+  wl_surface_attach(state->wl_surface,
+                    state->window_state->buffers[0].wl_buffer, 0, 0);
   wl_surface_commit(state->wl_surface);
 }
 
@@ -467,7 +403,10 @@ static const struct wl_registry_listener wl_registry_listener = {
     .global_remove = registry_global_remove,
 };
 
-void setup_OLD_wayland(struct client_state *wayland_state) {
+struct client_state *setup_OLD_wayland() {
+
+  struct client_state *wayland_state;
+  wayland_state = malloc(sizeof(*wayland_state));
 
   wayland_state->wl_display = wl_display_connect(NULL);
   wayland_state->wl_registry =
@@ -490,6 +429,8 @@ void setup_OLD_wayland(struct client_state *wayland_state) {
 
   struct wl_callback *cb = wl_surface_frame(wayland_state->wl_surface);
   wl_callback_add_listener(cb, &wl_surface_frame_listener, wayland_state);
+
+  return wayland_state;
 }
 
 struct wayland_state *setup_wayland() {
@@ -519,25 +460,38 @@ struct wayland_state *setup_wayland() {
   struct wl_callback *cb = wl_surface_frame(wayland_state->wl_surface);
   wl_callback_add_listener(cb, &wl_surface_frame_listener, wayland_state);
 
-  while (wl_display_dispatch(wayland_state->wl_display)) {
-    /* This space deliberately left blank */
-  }
-
   return wayland_state;
 }
 
 void update_game() {}
 
-void render_frame(uint32_t *data, struct client_state *state) {
+struct buffer *find_free_buffer(struct window_state *window_state) {
+
+  if (!window_state->buffers[0].busy)
+    return &window_state->buffers[0];
+  if (!window_state->buffers[1].busy)
+    return &window_state->buffers[1];
+  else
+    return NULL;
+}
+
+void render_frame(struct wl_surface *wl_surface, struct buffer *buffer) {
+  wl_surface_attach(wl_surface, buffer->wl_buffer, 0, 0);
+  wl_surface_damage_buffer(wl_surface, 0, 0, INT32_MAX, INT32_MAX);
+  wl_surface_commit(wl_surface);
+  buffer->busy = 1;
+}
+
+void fill_frame(uint32_t *data, struct client_state *state) {
 
   for (int y = 0; y < WINDOW_HEIGHT; ++y) {
     for (int x = 0; x < WINDOW_WIDTH; ++x) {
 
       if (state->game_state == PROGRESS) {
-        if ((*state->pixelmap)[x][y] > 0) {
+        if (state->pixelmap[x][y] > 0) {
           data[y * WINDOW_WIDTH + x] = SNAKE_COLOR;
-        } else if ((*state->pixelmap)[x][y] < 0) {
-          if ((*state->pixelmap)[x][y] == -2) {
+        } else if (state->pixelmap[x][y] < 0) {
+          if (state->pixelmap[x][y] == -2) {
             data[y * WINDOW_WIDTH + x] = 0xFF00FF00;
           } else {
             // background
@@ -563,7 +517,7 @@ void render_frame(uint32_t *data, struct client_state *state) {
 
 void setup_game() {}
 
-struct window_state *setup_window_state(struct wayland_state *wayland_state) {
+struct window_state *setup_window_state(struct client_state *wayland_state) {
   struct window_state *window_state;
   window_state = malloc(sizeof(*window_state));
 
@@ -606,63 +560,77 @@ struct window_state *setup_window_state(struct wayland_state *wayland_state) {
   window_state->buffers[1].shm_data = shm_data_buffer2;
   window_state->buffers[1].busy = false;
 
+  wl_buffer_add_listener(window_state->buffers[0].wl_buffer, &buffer_listener,
+                         &window_state->buffers[0]);
+  wl_buffer_add_listener(window_state->buffers[1].wl_buffer, &buffer_listener,
+                         &window_state->buffers[1]);
   wl_shm_pool_destroy(pool);
   close(fd);
 
   return window_state;
 }
 
-int main() {
+void TEMP_update(struct client_state *state) {
+  update_game_state(state);
+}
 
-  struct client_state state = {
-      .direction = RIGHT, .game_state = PROGRESS, .score = 0};
+void TEMP_render(struct client_state *state, int *fps_counter) {
+  wl_display_dispatch(state->wl_display);
+
+  struct buffer *free_buffer = find_free_buffer(state->window_state);
+  if (free_buffer != NULL) {
+    (*fps_counter)++;
+    render_score(state->pixelmap, WINDOW_WIDTH - 100, 2, state->score);
+    fill_frame(free_buffer->shm_data, state);
+    render_frame(state->wl_surface, free_buffer);
+  }
+}
+
+struct client_state *init_wayland() {
+
+  struct client_state *state = setup_OLD_wayland();
+
+  for (int x = 0; x < WINDOW_WIDTH; x++) {
+    for (int y = 0; y < WINDOW_HEIGHT; y++) {
+      state->pixelmap[x][y] = 0;
+    }
+  }
+
+  state->direction = RIGHT;
+  state->game_state = PROGRESS;
+  state->score = 0;
 
   int snake_starting_x = WINDOW_WIDTH / 2;
   int snake_starting_y = WINDOW_HEIGHT / 2;
   int snake_ending_x = snake_starting_x - SNAKE_INITIAL_LENGTH;
 
-  struct coords start = {snake_starting_x, snake_starting_y,
-                         SNAKE_INITIAL_LENGTH};
+  state->start.x = snake_starting_x;
+  state->start.y = snake_starting_y;
+  state->start.index = SNAKE_INITIAL_LENGTH;
 
-  struct coords end = {snake_starting_x - SNAKE_INITIAL_LENGTH,
-                       snake_starting_y, 0};
 
-  struct coords target = {-1, -1, -1};
+  state->end.x = snake_starting_x - SNAKE_INITIAL_LENGTH;
+  state->end.y = snake_starting_y;
+  state->end.index = 0;
 
-  short pixelmap[WINDOW_WIDTH][WINDOW_HEIGHT] = {0};
+  state->target.x = -1;
+  state->target.y = -1;
+  state->target.index = -1;
+
   for (int index = SNAKE_INITIAL_LENGTH; snake_starting_x > snake_ending_x;
        snake_starting_x--) {
-    pixelmap[snake_starting_x][snake_starting_y] = index--;
+    state->pixelmap[snake_starting_x][snake_starting_y] = index--;
   }
 
-  state.start = &start;
-  state.end = &end;
-  state.target = &target;
-  state.pixelmap = &pixelmap;
 
   srand(get_nanoseconds());
 
-  generate_target(&state);
+  generate_target(state);
 
   // struct wayland_state *wayland_state = setup_wayland();
-  // struct window_state *window_state = setup_window_state(&state);
+  struct window_state *window_state = setup_window_state(state);
 
-  setup_OLD_wayland(&state);
+  state->window_state = window_state;
 
-  int counter = 0;
-
-  while (1) {
-
-    if ((++counter % 50) == 0 || counter == 1) {
-        wl_display_dispatch(state.wl_display);
-      update_game_state(&state);
-    }
-
-    struct wl_buffer *buffer = draw_frame(&state);
-    wl_surface_attach(state.wl_surface, buffer, 0, 0);
-    wl_surface_damage_buffer(state.wl_surface, 0, 0, INT32_MAX, INT32_MAX);
-    wl_surface_commit(state.wl_surface);
-  }
-
-  return 0;
+  return state;
 }
