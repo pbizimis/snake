@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
+#include <wayland-client.h>
 
 #define TICKS_PER_SECOND 300
 #define SKIP_TICKS 1000 / TICKS_PER_SECOND
@@ -20,14 +21,11 @@ int get_second_from_tick_count(long long tick_count) {
   return (tick_count / (int)pow(10, 3)) % 10;
 }
 
-// void display_game_new(float interpolation) {}
-
 void start_game_loop() {
 
   struct client_state *state = init_wayland();
 
   long long next_game_tick = get_tick_count();
-  printf("first tick: %lld\n", next_game_tick);
 
   int loops;
   float interpolation;
@@ -36,12 +34,10 @@ void start_game_loop() {
 
   bool game_is_running = true;
 
-  TEMP_update(state);
-  TEMP_render(state, &fps);
-
   while (game_is_running) {
     loops = 0;
 
+    int res = wl_display_dispatch(state->wl_display);
 
     while (get_tick_count() > next_game_tick && loops < MAX_FRAMESKIP) {
       TEMP_update(state);
@@ -61,13 +57,8 @@ void start_game_loop() {
     interpolation = (get_tick_count() + (float)SKIP_TICKS - next_game_tick) /
                     (float)SKIP_TICKS;
 
-    // display_game(interpolation);
     TEMP_render(state, &fps);
   }
 }
 
-int main() {
-
-    start_game_loop();
-
-}
+int main() { start_game_loop(); }

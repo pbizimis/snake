@@ -61,7 +61,6 @@ static int allocate_shm_file(size_t size) {
   return fd;
 }
 
-
 struct wayland_state {
   struct wl_display *wl_display;
   struct wl_registry *wl_registry;
@@ -209,8 +208,7 @@ void update_game_state(struct client_state *state) {
     state->end.index++;
     state->pixelmap[state->end.x][state->end.y] = 0;
 
-    if (state->pixelmap[state->end.x + 1][state->end.y] ==
-        state->end.index) {
+    if (state->pixelmap[state->end.x + 1][state->end.y] == state->end.index) {
       state->end.x++;
     } else if (state->pixelmap[state->end.x - 1][state->end.y] ==
                state->end.index) {
@@ -570,12 +568,9 @@ struct window_state *setup_window_state(struct client_state *wayland_state) {
   return window_state;
 }
 
-void TEMP_update(struct client_state *state) {
-  update_game_state(state);
-}
+void TEMP_update(struct client_state *state) { update_game_state(state); }
 
 void TEMP_render(struct client_state *state, int *fps_counter) {
-  wl_display_dispatch(state->wl_display);
 
   struct buffer *free_buffer = find_free_buffer(state->window_state);
   if (free_buffer != NULL) {
@@ -608,7 +603,6 @@ struct client_state *init_wayland() {
   state->start.y = snake_starting_y;
   state->start.index = SNAKE_INITIAL_LENGTH;
 
-
   state->end.x = snake_starting_x - SNAKE_INITIAL_LENGTH;
   state->end.y = snake_starting_y;
   state->end.index = 0;
@@ -621,7 +615,6 @@ struct client_state *init_wayland() {
        snake_starting_x--) {
     state->pixelmap[snake_starting_x][snake_starting_y] = index--;
   }
-
 
   srand(get_nanoseconds());
 
