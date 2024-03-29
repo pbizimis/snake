@@ -227,10 +227,6 @@ static void xdg_surface_configure(void *data, struct xdg_surface *xdg_surface,
                                   uint32_t serial) {
   struct client_state *state = data;
   xdg_surface_ack_configure(xdg_surface, serial);
-
-  wl_surface_attach(state->wl_surface,
-                    state->window_state->buffers[0].wl_buffer, 0, 0);
-  wl_surface_commit(state->wl_surface);
 }
 
 static const struct xdg_surface_listener xdg_surface_listener = {
